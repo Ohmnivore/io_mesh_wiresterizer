@@ -1,5 +1,7 @@
 import os
 
+from . import lib_wire
+
 import bpy
 import mathutils
 import bpy_extras.io_utils
@@ -16,14 +18,11 @@ def mesh_triangulate(mesh):
     temp_mesh.free()
 
 
-def write_file(filepath, objects, scene,
-               EXPORT_TRI=False,
-               EXPORT_NORMALS=False,
+def write_file(filepath, wire_opts, objects, scene,
                EXPORT_APPLY_MODIFIERS=True,
                EXPORT_APPLY_MODIFIERS_RENDER=False,
                EXPORT_GLOBAL_MATRIX=None,
-               EXPORT_PATH_MODE='AUTO',
-               progress=ProgressReport(),
+               EXPORT_PATH_MODE='AUTO'
               ):
     """
     Basic write function. The context and options must be already set
@@ -37,168 +36,87 @@ def write_file(filepath, objects, scene,
     def veckey3d(vec):
         return round(vec.x, 4), round(vec.y, 4), round(vec.z, 4)
 
-    with ProgressReportSubstep(
-        progress,
-        2,
-        "Wiresterizer Export path: %r" % filepath,
-        "Wiresterizer Export Finished"
-        ) as subprogress1:
+    output_file = lib_wire.open_file(wire_opts, filepath)
+    file_write = output_file.write
+    lib_wire.write_header(wire_opts, file_write)
 
-        with open(filepath, "w", encoding="utf8", newline="\n") as file_object:
-            file_write = file_object.write
+    copy_set = set()
 
-            # Write Header
-            str_version = bpy.app.version_string
-            str_filepath = os.path.basename(bpy.data.filepath)
-            file_write('# Blender v%s Wiresterizer File: %r\n' % (str_version, str_filepath))
-            file_write('# www.blender.org\n')
+    # Get all meshes
+    for _i, ob_main in enumerate(objects):
+        # ignore dupli children
+        if ob_main.parent and ob_main.parent.dupli_type in {'VERTS', 'FACES'}:
+            continue
 
-            # Initialize totals, these are updated each object
-            totverts = totno = 1
+        collected_objects = [(ob_main, ob_main.matrix_world)]
+        if ob_main.dupli_type != 'NONE':
+            print('creating dupli_list on', ob_main.name)
+            ob_main.dupli_list_create(scene)
 
-            copy_set = set()
+            collected_objects += [(dob.object, dob.matrix) for dob in ob_main.dupli_list]
 
-            # Get all meshes
-            subprogress1.enter_substeps(len(objects))
-            for _i, ob_main in enumerate(objects):
-                # ignore dupli children
-                if ob_main.parent and ob_main.parent.dupli_type in {'VERTS', 'FACES'}:
-                    subprogress1.step("Ignoring %s, dupli child..." % ob_main.name)
-                    continue
+            print(ob_main.name, 'has', len(collected_objects) - 1, 'dupli children')
 
-                collected_objects = [(ob_main, ob_main.matrix_world)]
-                if ob_main.dupli_type != 'NONE':
-                    print('creating dupli_list on', ob_main.name)
-                    ob_main.dupli_list_create(scene)
+        for obj, obj_mat in collected_objects:
+            try:
+                convert_settings = 'PREVIEW'
+                if EXPORT_APPLY_MODIFIERS_RENDER:
+                    convert_settings = 'RENDER'
 
-                    collected_objects += [(dob.object, dob.matrix) for dob in ob_main.dupli_list]
+                mesh = obj.to_mesh(scene,
+                                   EXPORT_APPLY_MODIFIERS,
+                                   calc_tessface=False,
+                                   settings=convert_settings
+                                  )
+            except RuntimeError:
+                mesh = None
 
-                    print(ob_main.name, 'has', len(collected_objects) - 1, 'dupli children')
+            if mesh is None:
+                continue
 
-                subprogress1.enter_substeps(len(collected_objects))
-                for obj, obj_mat in collected_objects:
-                    with ProgressReportSubstep(subprogress1, 5) as subprogress2:
-                        no_unique_count = 0
+            # _must_ do this before applying transformation,
+            # else tessellation may differ
+            if wire_opts.triangles:
+                # _must_ do this first since it re-allocs arrays
+                mesh_triangulate(mesh)
 
-                        try:
-                            convert_settings = 'PREVIEW'
-                            if EXPORT_APPLY_MODIFIERS_RENDER:
-                                convert_settings = 'RENDER'
+            mesh.transform(EXPORT_GLOBAL_MATRIX * obj_mat)
+            # If negative scaling, we have to invert the normals...
+            if obj_mat.determinant() < 0.0:
+                mesh.flip_normals()
 
-                            mesh = obj.to_mesh(scene,
-                                               EXPORT_APPLY_MODIFIERS,
-                                               calc_tessface=False,
-                                               settings=convert_settings
-                                              )
-                        except RuntimeError:
-                            mesh = None
+            mesh_verts = mesh.vertices[:]
 
-                        if mesh is None:
-                            continue
+            # Make our own list so it can be sorted to reduce context switching
+            face_index_pairs = [(face, index) for
+                                index, face in enumerate(mesh.polygons)]
 
-                        # _must_ do this before applying transformation,
-                        # else tessellation may differ
-                        if EXPORT_TRI:
-                            # _must_ do this first since it re-allocs arrays
-                            mesh_triangulate(mesh)
+            # Make sure there is something to write
+            if (len(face_index_pairs) + len(mesh.vertices)) <= 0:
+                # clean up
+                bpy.data.meshes.remove(mesh)
+                continue  # dont bother with this mesh.
 
-                        mesh.transform(EXPORT_GLOBAL_MATRIX * obj_mat)
-                        # If negative scaling, we have to invert the normals...
-                        if obj_mat.determinant() < 0.0:
-                            mesh.flip_normals()
+            if wire_opts.uses_normals() and face_index_pairs:
+                mesh.calc_normals_split()
+                # No need to call me.free_normals_split later,
+                # as this mesh is deleted anyway!
 
-                        me_verts = mesh.vertices[:]
+            # TODO
 
-                        # Make our own list so it can be sorted to reduce context switching
-                        face_index_pairs = [(face, index) for
-                                            index, face in enumerate(mesh.polygons)]
-                        # faces = [ f for f in me.tessfaces ]
+            # clean up
+            bpy.data.meshes.remove(mesh)
 
-                        # Make sure there is something to write
-                        if (len(face_index_pairs) + len(mesh.vertices)) <= 0:
-                            # clean up
-                            bpy.data.meshes.remove(mesh)
-                            continue  # dont bother with this mesh.
+        if ob_main.dupli_type != 'NONE':
+            ob_main.dupli_list_clear()
 
-                        if EXPORT_NORMALS and face_index_pairs:
-                            mesh.calc_normals_split()
-                            # No need to call me.free_normals_split later,
-                            # as this mesh is deleted anyway!
+    # copy all collected files.
+    bpy_extras.io_utils.path_reference_copy(copy_set)
 
-                        loops = mesh.loops
-
-                        subprogress2.step()
-
-                        # Vert
-                        for vert in me_verts:
-                            file_write('v %.6f %.6f %.6f\n' % vert.co[:])
-
-                        subprogress2.step()
-
-                        # NORMAL, Smooth/Non smoothed.
-                        if EXPORT_NORMALS:
-                            no_key = no_val = None
-                            normals_to_idx = {}
-                            no_get = normals_to_idx.get
-                            loops_to_normals = [0] * len(loops)
-                            for face, _f_index in face_index_pairs:
-                                for l_idx in face.loop_indices:
-                                    no_key = veckey3d(loops[l_idx].normal)
-                                    no_val = no_get(no_key)
-                                    if no_val is None:
-                                        no_val = normals_to_idx[no_key] = no_unique_count
-                                        file_write('vn %.4f %.4f %.4f\n' % no_key)
-                                        no_unique_count += 1
-                                    loops_to_normals[l_idx] = no_val
-                            del normals_to_idx, no_get, no_key, no_val
-                        else:
-                            loops_to_normals = []
-
-                        subprogress2.step()
-
-                        for face, _f_index in face_index_pairs:
-                            f_v = [(vi, me_verts[v_idx], l_idx)
-                                   for vi, (v_idx, l_idx) in
-                                   enumerate(zip(face.vertices, face.loop_indices))]
-
-                            file_write('f')
-
-                            if EXPORT_NORMALS:
-                                for _vi, vert, loop_idx in f_v:
-                                    vert_idx = totverts + vert.index
-                                    normal_idx = totno + loops_to_normals[loop_idx]
-                                    file_write(" %d//%d" % (vert_idx, normal_idx))
-                            else: # No Normals
-                                for _vi, vert, _loop_idx in f_v:
-                                    vert_idx = totverts + vert.index
-                                    file_write(" %d" % (vert_idx))
-
-                            file_write('\n')
-
-                        subprogress2.step()
-
-                        # Make the indices global rather then per mesh
-                        totverts += len(me_verts)
-                        totno += no_unique_count
-
-                        # clean up
-                        bpy.data.meshes.remove(mesh)
-
-                if ob_main.dupli_type != 'NONE':
-                    ob_main.dupli_list_clear()
-
-                subprogress1.leave_substeps("Finished writing geometry of '%s'." % ob_main.name)
-            subprogress1.leave_substeps()
-
-        subprogress1.step("Finished exporting geometry")
-
-        # copy all collected files.
-        bpy_extras.io_utils.path_reference_copy(copy_set)
+    output_file.close()
 
 
-def _write(context, filepath,
-           EXPORT_TRI,  # ok
-           EXPORT_NORMALS,  # ok
+def _write(context, filepath, wire_opts,
            EXPORT_APPLY_MODIFIERS,  # ok
            EXPORT_APPLY_MODIFIERS_RENDER,  # ok
            EXPORT_SEL_ONLY,  # ok
@@ -235,14 +153,11 @@ def _write(context, filepath,
             # not too bad.
             # EXPORT THE FILE.
             progress.enter_substeps(1)
-            write_file(full_path, objects, scene,
-                       EXPORT_TRI,
-                       EXPORT_NORMALS,
+            write_file(full_path, wire_opts, objects, scene,
                        EXPORT_APPLY_MODIFIERS,
                        EXPORT_APPLY_MODIFIERS_RENDER,
                        EXPORT_GLOBAL_MATRIX,
-                       EXPORT_PATH_MODE,
-                       progress,
+                       EXPORT_PATH_MODE
                       )
             progress.leave_substeps()
 
@@ -252,9 +167,8 @@ def _write(context, filepath,
 
 def save(context,
          filepath,
+         wire_opts,
          *,
-         use_triangles=False,
-         use_normals=False,
          use_mesh_modifiers=True,
          use_mesh_modifiers_render=False,
          use_selection=True,
@@ -262,9 +176,7 @@ def save(context,
          path_mode='AUTO'
         ):
 
-    _write(context, filepath,
-           EXPORT_TRI=use_triangles,
-           EXPORT_NORMALS=use_normals,
+    _write(context, filepath, wire_opts,
            EXPORT_APPLY_MODIFIERS=use_mesh_modifiers,
            EXPORT_APPLY_MODIFIERS_RENDER=use_mesh_modifiers_render,
            EXPORT_SEL_ONLY=use_selection,

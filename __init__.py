@@ -15,7 +15,11 @@ if "bpy" in locals():
     import importlib
     if "export_wire" in locals():
         importlib.reload(export_wire)
+    if "lib_wire" in locals():
+        importlib.reload(lib_wire)
 
+
+from . import lib_wire
 
 import bpy
 from bpy.props import (
@@ -29,6 +33,9 @@ from bpy_extras.io_utils import (
     path_reference_mode,
     axis_conversion,
     )
+
+
+WIRESTERIZER_FORMAT_VERSION = 0
 
 
 IOOBJOrientationHelper = orientation_helper_factory(
@@ -71,15 +78,34 @@ class ExportWire(bpy.types.Operator, ExportHelper, IOOBJOrientationHelper):
         )
 
     # extra data group
-    use_normals = BoolProperty(
-        name="Write Normals",
-        description="Export one normal per vertex and per face to represent" \
-                    "flat faces and sharp edges",
-        default=False,
+    use_header = BoolProperty(
+        name="Include Header",
+        description="Write the format header",
+        default=True,
+        )
+    use_text_mode = BoolProperty(
+        name="Use Text Mode",
+        description="Use the Wiresterizer text format (useful for debugging)",
+        default=True,
         )
     use_triangles = BoolProperty(
         name="Triangulate Faces",
         description="Convert all faces to triangles",
+        default=False,
+        )
+    use_indexing = BoolProperty(
+        name="Use Indexing",
+        description="Faces will contain indexes to vertex data",
+        default=True,
+        )
+    use_vertex_normals = BoolProperty(
+        name="Write Vertex Normals",
+        description="Include a normal per vertex",
+        default=False,
+        )
+    use_face_normals = BoolProperty(
+        name="Write Face Normals",
+        description="Include a normal per face",
         default=False,
         )
 
@@ -97,20 +123,29 @@ class ExportWire(bpy.types.Operator, ExportHelper, IOOBJOrientationHelper):
         from . import export_wire
 
         from mathutils import Matrix
-        keywords = self.as_keywords(ignore=("axis_forward",
-                                            "axis_up",
-                                            "global_scale",
-                                            "check_existing",
-                                            "filter_glob",
-                                           ))
+        keywords = {}
+        keywords["use_mesh_modifiers"] = self.use_mesh_modifiers
+        keywords["use_mesh_modifiers_render"] = self.use_mesh_modifiers_render
+        keywords["use_selection"] = self.use_selection
+        keywords["path_mode"] = self.path_mode
 
         global_matrix = (Matrix.Scale(self.global_scale, 4) *
                          axis_conversion(to_forward=self.axis_forward,
                                          to_up=self.axis_up,
                                         ).to_4x4())
-
         keywords["global_matrix"] = global_matrix
-        return export_wire.save(context, **keywords)
+
+        # Wiresterizer options
+        wire_opts = lib_wire.WireOptions()
+        wire_opts.version = WIRESTERIZER_FORMAT_VERSION
+        wire_opts.header = self.use_header
+        wire_opts.text_mode = self.use_text_mode
+        wire_opts.triangles = self.use_triangles
+        wire_opts.indexing = self.use_indexing
+        wire_opts.vertex_normals = self.use_vertex_normals
+        wire_opts.face_normals = self.use_face_normals
+
+        return export_wire.save(context, self.filepath, wire_opts, **keywords)
 
 
 def menu_func_export(self, _context):
