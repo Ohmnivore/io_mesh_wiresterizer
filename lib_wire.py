@@ -77,23 +77,31 @@ def _bin_write_header_opts(options, file_write):
 
 
 # Text face export
-def _text_write_face(options, file_write, face):
+def _text_write_face_start(_options, file_write, _face):
     file_write('f')
 
-    if options.indexing:
-        raise Exception('Indexed mode not yet supported')
-    else:
-        if options.face_normals:
-            norm = face.face_normal
-            file_write(' %.4f %.4f %.4f' % (norm.x, norm.y, norm.z))
-
-        for vert in face.vertexes:
-            file_write(' %.6f %.6f %.6f' % (vert.pos.x, vert.pos.y, vert.pos.z))
-
-            if options.vertex_normals:
-                raise Exception('Vertex normals not yet supported')
-
+def _text_write_face_end(_options, file_write, _face):
     file_write('\n')
+
+def _text_write_face_norm(_options, file_write, _face, norm):
+    file_write(' %.4f %.4f %.4f' % (norm.x, norm.y, norm.z))
+
+def _text_write_face_vert(_options, file_write, _face, vert):
+    file_write(' %.6f %.6f %.6f' % (vert.pos.x, vert.pos.y, vert.pos.z))
+
+
+# Binary face export
+def _bin_write_face_start(_options, _file_write, _face):
+    pass
+
+def _bin_write_face_end(_options, _file_write, _face):
+    pass
+
+def _bin_write_face_norm(_options, _file_write, _face, _norm):
+    pass
+
+def _bin_write_face_vert(_options, _file_write, _face, _vert):
+    pass
 
 
 # High-level logic
@@ -124,3 +132,34 @@ def write_header(options, file_write):
     if options.header:
         write_header_magic_code(options, file_write)
         write_header_opts(options, file_write)
+
+def write_face(options, file_write, face):
+    if options.text_mode:
+        # Assign text functions
+        write_face_start = _text_write_face_start
+        write_face_end = _text_write_face_end
+        write_face_norm = _text_write_face_norm
+        write_face_vert = _text_write_face_vert
+
+    else:
+        # Assign binary functions
+        write_face_start = _bin_write_face_start
+        write_face_end = _bin_write_face_end
+        write_face_norm = _bin_write_face_norm
+        write_face_vert = _bin_write_face_vert
+
+    write_face_start(options, file_write, face)
+
+    if options.indexing:
+        raise Exception('Indexed mode not yet supported')
+    else:
+        if options.face_normals:
+            write_face_norm(options, file_write, face, face.norm)
+
+        for vert in face.vertexes:
+            write_face_vert(options, file_write, face, vert)
+
+            if options.vertex_normals:
+                raise Exception('Vertex normals not yet supported')
+
+    write_face_end(options, file_write, face)
