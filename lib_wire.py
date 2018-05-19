@@ -16,6 +16,28 @@ class WireOptions:
         return self.vertex_normals or self.face_normals
 
 
+class WireVec:
+
+    def __init__(self):
+        self.x = 0
+        self.y = 0
+        self.z = 0
+
+
+class WireVertex:
+
+    def __init__(self):
+        self.pos = WireVec()
+        self.norm = WireVec()
+
+
+class WireFace:
+
+    def __init__(self):
+        self.verts = []
+        self.norm = WireVec()
+
+
 # Binary util functions
 def _add_endian(options, fmt):
     if options.big_endian:
@@ -177,7 +199,7 @@ def write_face(options, file_write, face):
         if options.face_normals:
             write_face_norm(options, file_write, face, face.norm)
 
-        for vert in face.vertexes:
+        for vert in face.verts:
             write_face_vert(options, file_write, face, vert)
 
             if options.vertex_normals:
