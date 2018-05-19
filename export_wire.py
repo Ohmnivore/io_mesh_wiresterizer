@@ -102,7 +102,30 @@ def write_file(filepath, wire_opts, objects, scene,
                 # No need to call me.free_normals_split later,
                 # as this mesh is deleted anyway!
 
-            # TODO
+            for face, _f_index in face_index_pairs:
+                wire_face = lib_wire.WireFace()
+
+                # Face normal
+                wire_face.norm.x = face.normal[0]
+                wire_face.norm.y = face.normal[1]
+                wire_face.norm.z = face.normal[2]
+
+                # Face vertices
+                for vert_idx in face.vertices:
+                    wire_vert = lib_wire.WireVertex()
+                    wire_face.verts.append(wire_vert)
+
+                    vert_pos = mesh_verts[vert_idx].co
+                    wire_vert.pos.x = vert_pos[0]
+                    wire_vert.pos.y = vert_pos[1]
+                    wire_vert.pos.z = vert_pos[2]
+                    vert_norm = mesh_verts[vert_idx].normal
+                    wire_vert.norm.x = vert_norm[0]
+                    wire_vert.norm.y = vert_norm[1]
+                    wire_vert.norm.z = vert_norm[2]
+
+                # Write face
+                lib_wire.write_face(wire_opts, file_write, wire_face)
 
             # clean up
             bpy.data.meshes.remove(mesh)
