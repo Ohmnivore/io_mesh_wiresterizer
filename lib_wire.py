@@ -6,6 +6,7 @@ class WireOptions:
         self.version = -1
         self.header = False
         self.text_mode = False
+        self.big_endian = False
         self.triangles = False
         self.indexing = False
         self.vertex_normals = False
@@ -13,6 +14,23 @@ class WireOptions:
 
     def uses_normals(self):
         return self.vertex_normals or self.face_normals
+
+
+# Binary util functions
+def _add_endian(options, fmt):
+    if options.big_endian:
+        return '>' + fmt
+    else:
+        return '<' + fmt
+
+def _pack_int(options, value):
+    return struct.pack(_add_endian(options, 'i'), value)
+
+def _pack_unsigned_int(options, value):
+    return struct.pack(_add_endian(options, 'I'), value)
+
+def _pack_float(options, value):
+    return struct.pack(_add_endian(options, 'f'), value)
 
 
 # Text header export
@@ -35,31 +53,31 @@ def _text_write_header_opts(options, file_write):
 # Binary header export
 # WIRE in ASCII, 1464422981 in decimal
 BIN_MAGIC_CODE = 0x57495245
+BIN_MAGIC_CODE_BIG_ENDIAN = 0x45524957
 
-# First 10 bits
-BIN_VERSION_MASK = 0b1111111111
+# First 8 bits
+BIN_VERSION_MASK = 0xFF
 
-# 11th bit
-BIN_TRIANGLES_POS = 10
+# 9th bit
+BIN_TRIANGLES_POS = 8
 BIN_TRIANGLES_BIT = 1 << BIN_TRIANGLES_POS
 
-# 12th bit
-BIN_INDEXING_POS = 11
+# 10th bit
+BIN_INDEXING_POS = 9
 BIN_INDEXING_BIT = 1 << BIN_INDEXING_POS
 
-# 13th bit
-BIN_VERTEX_NORMALS_POS = 12
+# 11th bit
+BIN_VERTEX_NORMALS_POS = 10
 BIN_VERTEX_NORMALS_BIT = 1 << BIN_VERTEX_NORMALS_POS
 
-# 14th bit
-BIN_FACE_NORMALS_POS = 13
+# 12th bit
+BIN_FACE_NORMALS_POS = 11
 BIN_FACE_NORMALS_BIT = 1 << BIN_FACE_NORMALS_POS
 
-# Another 18 bits are available for later additions to the header
+# Another 20 bits are available for later additions to the header
 
-def _bin_write_header_magic_code(_options, file_write):
-    code_packed = struct.pack('>i', BIN_MAGIC_CODE)
-    file_write(code_packed)
+def _bin_write_header_magic_code(options, file_write):
+    file_write(_pack_unsigned_int(options, BIN_MAGIC_CODE))
 
 def _bin_write_header_opts(options, file_write):
     if options.version > BIN_VERSION_MASK or options.version < 0:
@@ -72,8 +90,7 @@ def _bin_write_header_opts(options, file_write):
     face_normals_bit = options.face_normals << BIN_FACE_NORMALS_POS
 
     header_word = version | triangles_bit | indexing_bit | vertex_normals_bit | face_normals_bit
-    header_word_packed = struct.pack('>i', header_word)
-    file_write(header_word_packed)
+    file_write(_pack_unsigned_int(options, header_word))
 
 
 # Text face export
@@ -97,11 +114,15 @@ def _bin_write_face_start(_options, _file_write, _face):
 def _bin_write_face_end(_options, _file_write, _face):
     pass
 
-def _bin_write_face_norm(_options, _file_write, _face, _norm):
-    pass
+def _bin_write_face_norm(options, file_write, _face, norm):
+    file_write(_pack_float(options, norm.x))
+    file_write(_pack_float(options, norm.y))
+    file_write(_pack_float(options, norm.z))
 
-def _bin_write_face_vert(_options, _file_write, _face, _vert):
-    pass
+def _bin_write_face_vert(options, file_write, _face, vert):
+    file_write(_pack_float(options, vert.pos.x))
+    file_write(_pack_float(options, vert.pos.y))
+    file_write(_pack_float(options, vert.pos.z))
 
 
 # High-level logic
