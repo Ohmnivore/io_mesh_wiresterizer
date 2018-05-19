@@ -73,9 +73,9 @@ def _text_write_header_opts(options, file_write):
 
 
 # Binary header export
-# WIRE in ASCII, 1464422981 in decimal (little endian used in header)
-BIN_MAGIC_CODE_LITTLE_ENDIAN = 0x45524957
-BIN_MAGIC_CODE_BIG_ENDIAN = 0x57495245
+# WIRE in ASCII, 1464422981 in decimal
+BIN_MAGIC_CODE_LITTLE_ENDIAN = 0x57495245
+BIN_MAGIC_CODE_BIG_ENDIAN = 0x45524957
 
 # First 8 bits
 BIN_VERSION_MASK = 0xFF
@@ -99,7 +99,7 @@ BIN_FACE_NORMALS_BIT = 1 << BIN_FACE_NORMALS_POS
 # Another 20 bits are available for later additions to the header
 
 def _bin_write_header_magic_code(options, file_write):
-    file_write(_pack_unsigned_int(options, BIN_MAGIC_CODE_LITTLE_ENDIAN))
+    file_write(_pack_unsigned_int(options, BIN_MAGIC_CODE_BIG_ENDIAN))
 
 def _bin_write_header_opts(options, file_write):
     if options.version > BIN_VERSION_MASK or options.version < 0:
