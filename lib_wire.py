@@ -11,9 +11,13 @@ class WireOptions:
         self.indexing = False
         self.vertex_normals = False
         self.face_normals = False
+        self.n_gons = False
 
     def uses_normals(self):
         return self.vertex_normals or self.face_normals
+
+    def uses_quads(self):
+        return not (self.triangles or self.n_gons)
 
 
 class WireVec:
@@ -96,7 +100,11 @@ BIN_VERTEX_NORMALS_BIT = 1 << BIN_VERTEX_NORMALS_POS
 BIN_FACE_NORMALS_POS = 11
 BIN_FACE_NORMALS_BIT = 1 << BIN_FACE_NORMALS_POS
 
-# Another 20 bits are available for later additions to the header
+# 13th bit
+BIN_N_GONS_POS = 11
+BIN_N_GONS_BIT = 1 << BIN_N_GONS_POS
+
+# Another 19 bits are available for later additions to the header
 
 def _bin_write_header_magic_code(options, file_write):
     file_write(_pack_unsigned_int(options, BIN_MAGIC_CODE_BIG_ENDIAN))
@@ -110,14 +118,23 @@ def _bin_write_header_opts(options, file_write):
     indexing_bit = options.indexing << BIN_INDEXING_POS
     vertex_normals_bit = options.vertex_normals << BIN_VERTEX_NORMALS_POS
     face_normals_bit = options.face_normals << BIN_FACE_NORMALS_POS
+    n_gons_bit = options.n_gons << BIN_N_GONS_BIT
 
-    header_word = version | triangles_bit | indexing_bit | vertex_normals_bit | face_normals_bit
+    header_word = version |             \
+                  triangles_bit |       \
+                  indexing_bit |        \
+                  vertex_normals_bit |  \
+                  face_normals_bit |    \
+                  n_gons_bit
+
     file_write(_pack_unsigned_int(options, header_word))
 
 
 # Text face export
-def _text_write_face_start(_options, file_write, _face):
+def _text_write_face_start(options, file_write, face):
     file_write('f')
+    if options.n_gons:
+        file_write(' %d' % len(face.verts))
 
 def _text_write_face_end(_options, file_write, _face):
     file_write('\n')
@@ -130,8 +147,9 @@ def _text_write_face_vert(_options, file_write, _face, vert):
 
 
 # Binary face export
-def _bin_write_face_start(_options, _file_write, _face):
-    pass
+def _bin_write_face_start(options, file_write, face):
+    if options.n_gons:
+        file_write(_pack_float(options, len(face.verts)))
 
 def _bin_write_face_end(_options, _file_write, _face):
     pass

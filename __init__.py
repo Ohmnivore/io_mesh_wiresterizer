@@ -93,6 +93,11 @@ class ExportWire(bpy.types.Operator, ExportHelper, IOOBJOrientationHelper):
         description="Convert all faces to triangles",
         default=False,
         )
+    use_n_gons = BoolProperty(
+        name="Use N-Gons",
+        description="Faces in source meshes have an arbitrary amounts of edges",
+        default=False,
+        )
     use_indexing = BoolProperty(
         name="Use Indexing",
         description="Faces will contain indexes to vertex data",
@@ -144,6 +149,7 @@ class ExportWire(bpy.types.Operator, ExportHelper, IOOBJOrientationHelper):
         wire_opts.indexing = self.use_indexing
         wire_opts.vertex_normals = self.use_vertex_normals
         wire_opts.face_normals = self.use_face_normals
+        wire_opts.n_gons = self.use_n_gons
 
         return export_wire.save(context, self.filepath, wire_opts, **keywords)
 
